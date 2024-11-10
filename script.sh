@@ -1,143 +1,179 @@
 #!/bin/bash
 
-# Function to check the success of a command
+set -e
+
+# Function to check if the previous command succeeded
 check_success() {
-    if [ $? -ne 0 ]; then
+    if [ $? -eq 0 ]; then
+        echo "$1 succeeded."
+    else
         echo "Error: $1 failed. Exiting script."
         exit 1
     fi
 }
 
-# Step 0: Remove any files called "noaman*" in /root
 echo "Removing any files named 'noaman*' in /root..."
 rm -f /root/noaman*
-check_success "Removing 'noaman*' files"
-
-# Ensure the script is executed as root
-if [ "$(id -u)" -ne 0 ]; then
-    echo "This script must be run as root."
-    sudo bash "$0" "$@"
-    exit 0
-fi
+check_success "File cleanup"
 
 echo "Starting automated Ubuntu Server setup..."
 
 # Step 1: Configure Google DNS
 echo "Configuring Google DNS..."
-echo "nameserver 8.8.8.8" > /etc/resolv.conf
-echo "nameserver 8.8.4.4" >> /etc/resolv.conf
+echo -e "nameserver 8.8.8.8\nnameserver 8.8.4.4" > /etc/resolv.conf
 check_success "Google DNS configuration"
 
-# Step 2: Install required dependencies
+# Step 2: Disable CD-ROM Repository
+echo "Disabling CD-ROM repository if enabled..."
+if grep -q "^deb cdrom:" /etc/apt/sources.list; then
+    sed -i 's/^deb cdrom:/#deb cdrom:/g' /etc/apt/sources.list
+    echo "CD-ROM repository disabled."
+else
+    echo "CD-ROM repository is not enabled."
+fi
+
+# Step 3: Install required dependencies
 echo "Installing required dependencies..."
-apt update -y && apt install -y debootstrap parted grub-efi-amd64 openssh-server
+apt update -y && apt install -y debootstrap parted grub-efi-amd64 openssh-server net-tools
 check_success "Dependencies installation"
 
-# Step 3: Enable SSH
+# Step 4: Enable SSH
 echo "Enabling SSH..."
-systemctl start ssh
 systemctl enable ssh
-sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
-systemctl restart ssh
-echo "root:new@2024" | chpasswd
-if ! id -u adel >/dev/null 2>&1; then
-    adduser --gecos "" --disabled-password adel
-    echo "adel:new@2024" | chpasswd
-    usermod -aG sudo adel
-fi
+systemctl start ssh
 check_success "SSH configuration"
 
-# Step 4: Detect target disk
-DISK=$(lsblk -dno NAME,TYPE | grep disk | awk '{print "/dev/"$1}' | head -n 1)
-if [ -z "$DISK" ]; then
-    echo "No valid disk found. Exiting."
+# Step 5: Check and create users for Live USB
+echo "Checking and creating users for Live USB environment..."
+if ! id -u root &>/dev/null; then
+    echo "Creating root user..."
+    echo "root:new@2024" | chpasswd
+    check_success "Root user creation"
+else
+    echo "Root user already exists. Updating password..."
+    echo "root:new@2024" | chpasswd
+    check_success "Root password update"
+fi
+
+if ! id -u adel &>/dev/null; then
+    echo "Creating user adel..."
+    useradd -m -s /bin/bash adel
+    echo "adel:new@2024" | chpasswd
+    check_success "User adel creation"
+else
+    echo "User adel already exists. Updating password..."
+    echo "adel:new@2024" | chpasswd
+    check_success "Adel password update"
+fi
+
+# Display Live USB IP address
+LIVE_USB_IP=$(hostname -I | awk '{print $1}')
+echo "You can SSH into this Live USB using the following credentials:"
+echo "  - Root: new@2024"
+echo "  - User: adel / new@2024"
+echo "  - Live USB IP Address: $LIVE_USB_IP"
+
+# Step 6: Detect target disk
+echo "Detecting target disk..."
+TARGET_DISK=$(lsblk -dpno NAME | grep -E "/dev/sd|/dev/nvme" | head -n 1)
+if [ -z "$TARGET_DISK" ]; then
+    echo "Error: No target disk detected. Exiting script."
     exit 1
 fi
-echo "Detected target disk: $DISK"
+echo "Detected target disk: $TARGET_DISK"
 
-# Step 5: Ensure no partitions are in use
-echo "Ensuring no partitions are in use..."
-for partition in $(lsblk -no NAME "$DISK" | tail -n +2); do
-    umount -f "/dev/${partition}" 2>/dev/null || true
-done
-check_success "Unmounting partitions"
+# Step 7: Unmount any existing partitions
+echo "Unmounting existing partitions on $TARGET_DISK..."
+umount "${TARGET_DISK}"* || true
 
-# Step 6: Clear existing partitions
-echo "Removing existing partitions..."
-parted -s "$DISK" mklabel gpt
-check_success "Partition table reset"
-
-# Step 7: Partition the disk
+# Step 8: Partition the disk
 echo "Partitioning the disk..."
-parted -s "$DISK" mkpart primary fat32 1MiB 512MiB
-check_success "Creating EFI partition"
-parted -s "$DISK" set 1 boot on
-parted -s "$DISK" mkpart primary ext4 512MiB 100%
-check_success "Creating root partition"
+parted --script "$TARGET_DISK" \
+    mklabel gpt \
+    mkpart ESP fat32 1MiB 512MiB \
+    set 1 boot on \
+    mkpart primary ext4 512MiB 100%
+check_success "Disk partitioning"
 
-# Step 8: Format partitions
-BOOT_PART="${DISK}1"
-ROOT_PART="${DISK}2"
+# Step 9: Format partitions
 echo "Formatting partitions..."
-mkfs.vfat -F 32 "$BOOT_PART"
-check_success "Formatting EFI partition"
-mkfs.ext4 "$ROOT_PART"
-check_success "Formatting root partition"
+mkfs.vfat -F32 "${TARGET_DISK}1"
+check_success "EFI partition formatting"
+mkfs.ext4 "${TARGET_DISK}2"
+check_success "Root partition formatting"
 
-# Step 9: Mount partitions
+# Step 10: Mount partitions
 echo "Mounting partitions..."
-mount "$ROOT_PART" /mnt
-check_success "Mounting root partition"
+mount "${TARGET_DISK}2" /mnt
 mkdir -p /mnt/boot/efi
-mount "$BOOT_PART" /mnt/boot/efi
-check_success "Mounting EFI partition"
+mount "${TARGET_DISK}1" /mnt/boot/efi
+check_success "Partition mounting"
 
-# Step 10: Bootstrap Ubuntu
-echo "Installing Ubuntu Server..."
+# Step 11: Install minimal Ubuntu Server system
+echo "Installing minimal Ubuntu Server system..."
 debootstrap --arch=amd64 lunar /mnt http://archive.ubuntu.com/ubuntu/
-check_success "Ubuntu Server installation"
+check_success "Base system installation"
 
-# Step 11: Configure the system
-echo "Configuring system..."
-echo "ubuntu-server" > /mnt/etc/hostname
-echo "127.0.0.1 localhost" > /mnt/etc/hosts
-mount -t proc none /mnt/proc
-check_success "Mounting /proc"
-mount -t sysfs none /mnt/sys
-check_success "Mounting /sys"
+# Step 12: Configure the system
+echo "Configuring the installed system..."
 mount --bind /dev /mnt/dev
-check_success "Mounting /dev"
+mount --bind /proc /mnt/proc
+mount --bind /sys /mnt/sys
+echo "ubuntu-server" > /mnt/etc/hostname
+cat << EOF > /mnt/etc/hosts
+127.0.0.1   localhost
+127.0.1.1   ubuntu-server
+EOF
+check_success "System configuration"
 
-# Step 12: Install essential packages
+# Step 13: Configure and install essential packages
+echo "Installing essential packages..."
 chroot /mnt apt update -y
 chroot /mnt apt install -y openssh-server grub-efi-amd64
-check_success "Installing essential packages"
-chroot /mnt systemctl enable ssh
-chroot /mnt sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
-echo "root:new@2024" | chroot /mnt chpasswd
-if ! chroot /mnt id -u adel >/dev/null 2>&1; then
-    chroot /mnt adduser --gecos "" --disabled-password adel
-    echo "adel:new@2024" | chroot /mnt chpasswd
-    chroot /mnt usermod -aG sudo adel
-fi
-check_success "User and SSH configuration in chroot"
+check_success "Essential packages installation"
 
-# Step 13: Install GRUB
+# Step 14: Check and create users for the installed system
+echo "Checking and creating users for the installed system..."
+chroot /mnt bash -c '
+if ! id -u root &>/dev/null; then
+    echo "Creating root user..."
+    echo "root:new@2024" | chpasswd
+else
+    echo "Root user already exists. Updating password..."
+    echo "root:new@2024" | chpasswd
+fi
+
+if ! id -u adel &>/dev/null; then
+    echo "Creating user adel..."
+    useradd -m -s /bin/bash adel
+    echo "adel:new@2024" | chpasswd
+else
+    echo "User adel already exists. Updating password..."
+    echo "adel:new@2024" | chpasswd
+fi
+'
+check_success "User creation for installed system"
+
+# Step 15: Install GRUB Bootloader
 echo "Installing GRUB bootloader..."
-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
+chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=ubuntu
 check_success "GRUB installation"
-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+chroot /mnt update-grub
 check_success "GRUB configuration"
 
-# Step 14: Cleanup
+# Step 16: Cleanup
 echo "Cleaning up..."
-umount -f /mnt/boot/efi
-check_success "Unmounting EFI partition"
-umount -f /mnt/proc /mnt/sys /mnt/dev /mnt
-check_success "Unmounting all partitions"
+umount -l /mnt/dev || true
+umount -l /mnt/proc || true
+umount -l /mnt/sys || true
+umount -l /mnt/boot/efi || true
+umount -l /mnt || true
+check_success "Cleanup"
 
-# Step 15: Completion message
+# Step 17: Completion message
+INSTALLED_SYSTEM_IP=$(chroot /mnt hostname -I | awk '{print $1}')
 echo "Ubuntu Server setup complete!"
 echo "You can boot into the installed system and SSH using the following credentials:"
 echo "  - Root: new@2024"
 echo "  - User: adel / new@2024"
+echo "  - Installed System IP Address: $INSTALLED_SYSTEM_IP"
