@@ -14,6 +14,16 @@ check_grub_installed() {
     fi
 }
 
+# Function to delete all existing partitions
+delete_partitions() {
+    echo "Deleting all existing partitions on $DISK..."
+    for PART in $(lsblk -no NAME "$DISK" | grep "${DISK##*/}p"); do
+        echo "Deleting /dev/$PART..."
+        parted "$DISK" rm "$(echo $PART | grep -o '[0-9]*')"
+    done
+    echo "All partitions deleted."
+}
+
 # Function to rescan partitions
 rescan_partitions() {
     echo "Rescanning disk to ensure partitions are recognized..."
@@ -45,13 +55,13 @@ create_partitions() {
 # Function to format partitions
 format_partitions() {
     echo "Formatting EFI System Partition (ESP) as FAT32..."
-    mkfs.fat -F32 "${DISK}p1"
+    mkfs.fat -F32 -n EFI "${DISK}p1"
 
     echo "Formatting root partition as ext4..."
-    mkfs.ext4 "${DISK}p2"
+    mkfs.ext4 -F "${DISK}p2"
 
     echo "Formatting home partition as ext4..."
-    mkfs.ext4 "${DISK}p4"
+    mkfs.ext4 -F "${DISK}p4"
 
     echo "Setting up swap partition..."
     mkswap "${DISK}p3"
@@ -81,13 +91,16 @@ install_grub() {
 # Step 1: Ensure GRUB is installed
 check_grub_installed
 
-# Step 2: Create partitions
+# Step 2: Delete existing partitions
+delete_partitions
+
+# Step 3: Create partitions
 create_partitions
 
-# Step 3: Format partitions
+# Step 4: Format partitions
 format_partitions
 
-# Step 4: Install GRUB in UEFI mode
+# Step 5: Install GRUB in UEFI mode
 install_grub
 
 echo "Partitioning, formatting, and GRUB installation complete."
