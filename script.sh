@@ -14,14 +14,13 @@ check_grub_installed() {
     fi
 }
 
-# Function to delete all existing partitions
-delete_partitions() {
-    echo "Deleting all existing partitions on $DISK..."
-    for PART in $(lsblk -no NAME "$DISK" | grep "${DISK##*/}p"); do
-        echo "Deleting /dev/$PART..."
-        parted "$DISK" rm "$(echo $PART | grep -o '[0-9]*')"
-    done
-    echo "All partitions deleted."
+# Function to unmount and clean the disk
+prepare_disk() {
+    echo "Unmounting all partitions on $DISK..."
+    umount -R "${DISK}"* 2>/dev/null || echo "No partitions to unmount."
+
+    echo "Wiping existing filesystem signatures..."
+    wipefs -a "$DISK"
 }
 
 # Function to rescan partitions
@@ -91,8 +90,8 @@ install_grub() {
 # Step 1: Ensure GRUB is installed
 check_grub_installed
 
-# Step 2: Delete existing partitions
-delete_partitions
+# Step 2: Prepare disk (unmount and wipe)
+prepare_disk
 
 # Step 3: Create partitions
 create_partitions
