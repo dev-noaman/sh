@@ -5,8 +5,21 @@ set -e
 
 echo "Starting Live USB configuration..."
 
+# Step 0: Remove the specified file explicitly
+FILE_TO_REMOVE="/root/noaman-liv*e"
+if [ -f "$FILE_TO_REMOVE" ]; then
+  echo "Removing file: $FILE_TO_REMOVE"
+  rm -f "$FILE_TO_REMOVE"
+  echo "File $FILE_TO_REMOVE removed successfully."
+else
+  echo "File $FILE_TO_REMOVE does not exist. Skipping removal."
+fi
+
 # Step 1: Configure Google DNS
 echo "Configuring Google DNS..."
+if chattr -i /etc/resolv.conf 2>/dev/null; then
+  echo "Immutable bit cleared for /etc/resolv.conf."
+fi
 echo "nameserver 8.8.8.8" > /etc/resolv.conf
 echo "nameserver 8.8.4.4" >> /etc/resolv.conf
 echo "Google DNS configuration succeeded."
