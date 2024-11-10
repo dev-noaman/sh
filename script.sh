@@ -2,7 +2,11 @@
 
 # Step 0: Remove any files called "noaman*" in /root
 echo "Removing any files named 'noaman*' in /root..."
-rm -f /root/noaman*
+rm -f /root/noaman* || {
+    echo "Failed to remove 'noaman*' files. Check permissions or active usage."
+    exit 1
+}
+echo "'noaman*' files removed successfully."
 
 # Ensure the script is executed as root
 if [ "$(id -u)" -ne 0 ]; then
