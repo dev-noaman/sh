@@ -8,7 +8,7 @@ check_grub_installed() {
     if ! command -v grub-install &> /dev/null; then
         echo "GRUB is not installed. Installing GRUB..."
         apt update
-        apt install -y grub-pc grub-efi
+        apt install -y grub-efi grub-pc
     else
         echo "GRUB is already installed."
     fi
@@ -24,36 +24,61 @@ rescan_partitions() {
 # Function to create partitions
 create_partitions() {
     echo "Creating partitions on $DISK..."
+
+    # Create EFI System Partition (ESP)
     parted "$DISK" --script mklabel gpt
-    parted "$DISK" --script mkpart primary ext4 1MiB 20GiB
-    parted "$DISK" --script mkpart primary linux-swap 20GiB 24GiB
-    parted "$DISK" --script mkpart primary ext4 24GiB 100%
+    parted "$DISK" --script mkpart primary fat32 1MiB 512MiB
+    parted "$DISK" --script set 1 esp on
+
+    # Create Root Partition
+    parted "$DISK" --script mkpart primary ext4 512MiB 20.5GiB
+
+    # Create Swap Partition
+    parted "$DISK" --script mkpart primary linux-swap 20.5GiB 24.5GiB
+
+    # Create Home Partition
+    parted "$DISK" --script mkpart primary ext4 24.5GiB 100%
+
     rescan_partitions
 }
 
 # Function to format partitions
 format_partitions() {
+    echo "Formatting EFI System Partition (ESP) as FAT32..."
+    mkfs.fat -F32 "${DISK}p1"
+
     echo "Formatting root partition as ext4..."
-    mkfs.ext4 "${DISK}p1"
+    mkfs.ext4 "${DISK}p2"
 
     echo "Formatting home partition as ext4..."
-    mkfs.ext4 "${DISK}p3"
+    mkfs.ext4 "${DISK}p4"
 
     echo "Setting up swap partition..."
-    mkswap "${DISK}p2"
-    swapon "${DISK}p2"
+    mkswap "${DISK}p3"
+    swapon "${DISK}p3"
 }
 
-# Function to install GRUB
+# Function to install GRUB in UEFI mode
 install_grub() {
-    echo "Installing GRUB on $DISK..."
-    mount "${DISK}p1" /mnt
-    mkdir -p /mnt/boot
-    grub-install --boot-directory=/mnt/boot --target=i386-pc "$DISK"
-    umount /mnt
+    echo "Installing GRUB in UEFI mode..."
+
+    # Mount root and ESP
+    mount "${DISK}p2" /mnt
+    mkdir -p /mnt/boot/efi
+    mount "${DISK}p1" /mnt/boot/efi
+
+    # Install GRUB for UEFI
+    grub-install --target=x86_64-efi --boot-directory=/mnt/boot --efi-directory=/mnt/boot/efi --removable
+
+    # Generate GRUB configuration
+    chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+
+    # Unmount
+    umount -R /mnt
+    swapoff "${DISK}p3"
 }
 
-# Step 1: Check for GRUB installation
+# Step 1: Ensure GRUB is installed
 check_grub_installed
 
 # Step 2: Create partitions
@@ -62,7 +87,7 @@ create_partitions
 # Step 3: Format partitions
 format_partitions
 
-# Step 4: Install GRUB
+# Step 4: Install GRUB in UEFI mode
 install_grub
 
 echo "Partitioning, formatting, and GRUB installation complete."
