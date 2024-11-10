@@ -10,11 +10,8 @@ check_success() {
 
 # Step 0: Remove any files called "noaman*" in /root
 echo "Removing any files named 'noaman*' in /root..."
-rm -f /root/noaman* || {
-    echo "Failed to remove 'noaman*' files. Exiting."
-    exit 1
-}
-echo "'noaman*' files removed successfully."
+rm -f /root/noaman*
+check_success "Removing 'noaman*' files"
 
 # Ensure the script is executed as root
 if [ "$(id -u)" -ne 0 ]; then
@@ -58,19 +55,19 @@ if [ -z "$DISK" ]; then
 fi
 echo "Detected target disk: $DISK"
 
-# Step 5: Unmount any mounted partitions
-echo "Unmounting any mounted partitions on the target disk..."
+# Step 5: Ensure no partitions are in use
+echo "Ensuring no partitions are in use..."
 for partition in $(lsblk -no NAME "$DISK" | tail -n +2); do
     umount -f "/dev/${partition}" 2>/dev/null || true
 done
 check_success "Unmounting partitions"
 
-# Additional step: Remove existing partitions to avoid conflicts
+# Step 6: Clear existing partitions
 echo "Removing existing partitions..."
 parted -s "$DISK" mklabel gpt
 check_success "Partition table reset"
 
-# Step 6: Partition the disk
+# Step 7: Partition the disk
 echo "Partitioning the disk..."
 parted -s "$DISK" mkpart primary fat32 1MiB 512MiB
 check_success "Creating EFI partition"
@@ -78,7 +75,7 @@ parted -s "$DISK" set 1 boot on
 parted -s "$DISK" mkpart primary ext4 512MiB 100%
 check_success "Creating root partition"
 
-# Step 7: Format partitions
+# Step 8: Format partitions
 BOOT_PART="${DISK}1"
 ROOT_PART="${DISK}2"
 echo "Formatting partitions..."
@@ -87,7 +84,7 @@ check_success "Formatting EFI partition"
 mkfs.ext4 "$ROOT_PART"
 check_success "Formatting root partition"
 
-# Step 8: Mount partitions
+# Step 9: Mount partitions
 echo "Mounting partitions..."
 mount "$ROOT_PART" /mnt
 check_success "Mounting root partition"
@@ -95,12 +92,12 @@ mkdir -p /mnt/boot/efi
 mount "$BOOT_PART" /mnt/boot/efi
 check_success "Mounting EFI partition"
 
-# Step 9: Bootstrap Ubuntu
+# Step 10: Bootstrap Ubuntu
 echo "Installing Ubuntu Server..."
 debootstrap --arch=amd64 lunar /mnt http://archive.ubuntu.com/ubuntu/
 check_success "Ubuntu Server installation"
 
-# Step 10: Configure the system
+# Step 11: Configure the system
 echo "Configuring system..."
 echo "ubuntu-server" > /mnt/etc/hostname
 echo "127.0.0.1 localhost" > /mnt/etc/hosts
@@ -111,7 +108,7 @@ check_success "Mounting /sys"
 mount --bind /dev /mnt/dev
 check_success "Mounting /dev"
 
-# Step 11: Install essential packages
+# Step 12: Install essential packages
 chroot /mnt apt update -y
 chroot /mnt apt install -y openssh-server grub-efi-amd64
 check_success "Installing essential packages"
@@ -125,21 +122,21 @@ if ! chroot /mnt id -u adel >/dev/null 2>&1; then
 fi
 check_success "User and SSH configuration in chroot"
 
-# Step 12: Install GRUB
+# Step 13: Install GRUB
 echo "Installing GRUB bootloader..."
-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
+chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
 check_success "GRUB installation"
 chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
 check_success "GRUB configuration"
 
-# Step 13: Cleanup
+# Step 14: Cleanup
 echo "Cleaning up..."
 umount -f /mnt/boot/efi
 check_success "Unmounting EFI partition"
 umount -f /mnt/proc /mnt/sys /mnt/dev /mnt
 check_success "Unmounting all partitions"
 
-# Step 14: Completion message
+# Step 15: Completion message
 echo "Ubuntu Server setup complete!"
 echo "You can boot into the installed system and SSH using the following credentials:"
 echo "  - Root: new@2024"
