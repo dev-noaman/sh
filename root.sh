@@ -46,15 +46,15 @@ echo "Root login through SSH enabled."
 
 # Step 6: Configure root and user accounts for Live USB
 echo "Configuring user accounts for Live USB environment..."
-echo "root:new@2024" | chpasswd
+echo "root:New@2024" | chpasswd
 echo "Root password update succeeded."
 
 if id "adel" &>/dev/null; then
-  echo "adel:new@2024" | chpasswd
+  echo "adel:New@2024" | chpasswd
   echo "User adel password update succeeded."
 else
   useradd -m -s /bin/bash adel
-  echo "adel:new@2024" | chpasswd
+  echo "adel:New@2024" | chpasswd
   echo "User adel created and password update succeeded."
 fi
 
@@ -64,8 +64,8 @@ if [[ -z "$LIVE_USB_IP" ]]; then
   echo "Unable to fetch IP address. Check network configuration."
 else
   echo "Live USB configuration complete! You can SSH into the Live USB using the following credentials:"
-  echo "  - Root: new@2024"
-  echo "  - User: adel / new@2024"
+  echo "  - root: New@2024"
+  echo "  - User: adel / New@2024"
   echo "  - Live USB IP Address: $LIVE_USB_IP"
 fi
 
