@@ -3,6 +3,8 @@
 # Exit script on error
 set -e
 
+TARGET_DISK="/dev/nvme0n1"
+
 echo "Removing any files named 'noaman*' in /root..."
 rm -f /root/noaman*
 
@@ -51,23 +53,14 @@ echo "  - Root: new@2024"
 echo "  - User: adel / new@2024"
 echo "  - Live USB IP Address: $LIVE_USB_IP"
 
-# Step 7: Detect target disk
-echo "Detecting target disk..."
-TARGET_DISK=$(lsblk -nd --output NAME,SIZE | grep -E 'sd|nvme' | awk '{print "/dev/"$1}' | head -n 1)
-if [ -z "$TARGET_DISK" ]; then
-  echo "Error: No suitable target disk found. Exiting."
-  exit 1
-fi
-echo "Detected target disk: $TARGET_DISK"
-
-# Step 8: Unmount existing partitions on the target disk
+# Step 7: Unmount existing partitions on the target disk
 echo "Unmounting existing partitions on $TARGET_DISK..."
 umount -l ${TARGET_DISK}* || true
 lsof | grep $TARGET_DISK | awk '{print $2}' | xargs -r kill -9 || true
 partprobe $TARGET_DISK
 echo "Disk unmounted and refreshed."
 
-# Step 9: Partition the target disk
+# Step 8: Partition the target disk
 echo "Partitioning the disk..."
 parted --script $TARGET_DISK mklabel gpt
 parted --script $TARGET_DISK mkpart ESP fat32 1MiB 512MiB
@@ -75,25 +68,25 @@ parted --script $TARGET_DISK set 1 boot on
 parted --script $TARGET_DISK mkpart primary ext4 512MiB 100%
 echo "Disk partitioning succeeded."
 
-# Step 10: Format the partitions
+# Step 9: Format the partitions
 echo "Formatting partitions..."
 mkfs.vfat -F32 ${TARGET_DISK}1
 mkfs.ext4 ${TARGET_DISK}2
 echo "Disk formatting succeeded."
 
-# Step 11: Mount the partitions
+# Step 10: Mount the partitions
 echo "Mounting partitions..."
 mount ${TARGET_DISK}2 /mnt
 mkdir -p /mnt/boot/efi
 mount ${TARGET_DISK}1 /mnt/boot/efi
 echo "Partitions mounted."
 
-# Step 12: Install Ubuntu minimal system
+# Step 11: Install Ubuntu minimal system
 echo "Installing Ubuntu minimal system..."
 debootstrap --arch=amd64 lunar /mnt http://archive.ubuntu.com/ubuntu/
 echo "Base system installation succeeded."
 
-# Step 13: Configure the new system
+# Step 12: Configure the new system
 echo "Configuring the new system..."
 cat <<EOF > /mnt/etc/fstab
 ${TARGET_DISK}2 / ext4 errors=remount-ro 0 1
@@ -116,18 +109,18 @@ chroot /mnt /bin/bash -c "useradd -m -s /bin/bash adel"
 chroot /mnt /bin/bash -c "echo 'adel:new@2024' | chpasswd"
 echo "Users configured successfully."
 
-# Step 14: Install GRUB bootloader
+# Step 13: Install GRUB bootloader
 echo "Installing GRUB bootloader..."
 chroot /mnt /bin/bash -c "grub-install $TARGET_DISK"
 chroot /mnt /bin/bash -c "update-grub"
 echo "GRUB bootloader installation succeeded."
 
-# Step 15: Cleanup
+# Step 14: Cleanup
 echo "Cleaning up..."
 umount -R /mnt || true
 echo "Cleanup succeeded."
 
-# Step 16: Completion message
+# Step 15: Completion message
 SERVER_IP=$(ip addr show | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | cut -d/ -f1 | head -n 1)
 echo "Ubuntu Server setup complete!"
 echo "You can boot into the installed system and SSH using the following credentials:"
