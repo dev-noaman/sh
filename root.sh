@@ -7,14 +7,9 @@ echo "Starting Live USB configuration..."
 
 # Step 0: Remove all files starting with 'noaman-live'
 echo "Removing files starting with 'noaman-live'..."
-FILE_TO_REMOVE="/root/noaman-live*"
-if ls $FILE_TO_REMOVE 1>/dev/null 2>&1; then
-  echo "Removing files matching pattern: $FILE_TO_REMOVE"
-  rm -f $FILE_TO_REMOVE
-  echo "Files matching $FILE_TO_REMOVE removed successfully."
-else
-  echo "No files matching $FILE_TO_REMOVE found. Skipping removal."
-fi
+rm -f /root/noaman-live* 2>/dev/null || true
+echo "All files starting with 'noaman-live' removed (if they existed)."
+
 
 # Step 1: Configure Google DNS
 echo "Configuring Google DNS..."
