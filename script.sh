@@ -1,59 +1,56 @@
 #!/bin/bash
 
-# Function to check if the last command succeeded
+set -e
+
 check_success() {
-    if [ $? -eq 0 ]; then
-        echo "$1 succeeded."
-    else
-        echo "$1 failed. Exiting script."
+    if [ $? -ne 0 ]; then
+        echo "Error encountered at step: $1. Exiting script."
         exit 1
     fi
 }
 
-# Step 1: Remove any existing noaman files
 echo "Removing any files named 'noaman*' in /root..."
-rm -f /root/noaman*
-check_success "File cleanup"
+rm -f /root/noaman* || true
+echo "File cleanup succeeded."
 
-# Step 2: Configure Google DNS
+echo "Starting automated Ubuntu Server setup..."
+
+# Step 1: Configure Google DNS
 echo "Configuring Google DNS..."
-echo "nameserver 8.8.8.8" > /etc/resolv.conf
-echo "nameserver 8.8.4.4" >> /etc/resolv.conf
+cat <<EOF >/etc/resolv.conf
+nameserver 8.8.8.8
+nameserver 8.8.4.4
+EOF
 check_success "Google DNS configuration"
 
-# Step 3: Disable CD-ROM repository
+# Step 2: Disable CD-ROM repository
 echo "Disabling CD-ROM repository if enabled..."
 sed -i '/cdrom:/s/^/#/' /etc/apt/sources.list
-check_success "CD-ROM repository disabling"
+check_success "Disabling CD-ROM repository"
 
-# Step 4: Install required dependencies
+# Step 3: Install required dependencies
 echo "Installing required dependencies..."
-apt update && apt install -y net-tools debootstrap grub-efi-amd64 openssh-server parted
+apt-get update && apt-get install -y net-tools debootstrap grub-efi-amd64 openssh-server parted
 check_success "Dependencies installation"
 
-# Step 5: Enable SSH
+# Step 4: Enable SSH
 echo "Enabling SSH..."
 systemctl enable ssh
 check_success "SSH configuration"
 
-# Step 6: Configure users for Live USB
+# Step 5: Create users for Live USB
 echo "Checking and creating users for Live USB environment..."
 echo "root:new@2024" | chpasswd
 check_success "Root password update"
-id adel &>/dev/null || useradd -m adel
+id adel &>/dev/null || adduser --disabled-password --gecos "" adel
 echo "adel:new@2024" | chpasswd
-check_success "User adel password update"
+check_success "Adel password update"
 
-# Step 7: Detect target disk
-echo "Detecting target disk..."
-TARGET_DISK=$(lsblk -ndp -o NAME | grep -v "$(df / | tail -1 | awk '{print $1}')")
-if [ -z "$TARGET_DISK" ]; then
-    echo "No suitable target disk found. Exiting script."
-    exit 1
-fi
-echo "Detected target disk: $TARGET_DISK"
+# Step 6: Detect and confirm target disk
+TARGET_DISK="/dev/nvme0n1"
+echo "Selected target disk: $TARGET_DISK"
 
-# Step 8: Unmount any partitions on the target disk
+# Step 7: Unmount any partitions on the target disk
 echo "Unmounting existing partitions on $TARGET_DISK..."
 for PART in $(lsblk -lnp $TARGET_DISK | awk '{print $1}'); do
     umount -lf $PART || true
@@ -62,59 +59,67 @@ echo "Killing processes using $TARGET_DISK..."
 lsof | grep $TARGET_DISK | awk '{print $2}' | xargs -r kill -9
 check_success "Disk unmounting and process cleanup"
 
-# Step 9: Partition the disk
-echo "Partitioning the disk..."
-parted --script $TARGET_DISK \
-    mklabel gpt \
-    mkpart primary fat32 1MiB 512MiB \
-    set 1 esp on \
-    mkpart primary ext4 512MiB 100%
+# Step 8: Partition the disk
+echo "Partitioning $TARGET_DISK..."
+parted $TARGET_DISK mklabel gpt
+parted $TARGET_DISK mkpart ESP fat32 1MiB 512MiB
+parted $TARGET_DISK set 1 boot on
+parted $TARGET_DISK mkpart primary ext4 512MiB 100%
 check_success "Disk partitioning"
 
-# Step 10: Format partitions
+# Step 9: Format the partitions
 echo "Formatting partitions..."
-mkfs.vfat -F32 "${TARGET_DISK}1"
-check_success "EFI partition formatting"
-mkfs.ext4 "${TARGET_DISK}2"
-check_success "Root partition formatting"
+mkfs.vfat -F 32 "${TARGET_DISK}p1"
+mkfs.ext4 "${TARGET_DISK}p2"
+check_success "Partition formatting"
 
-# Step 11: Mount partitions
+# Step 10: Mount partitions
 echo "Mounting partitions..."
-mount "${TARGET_DISK}2" /mnt
+mount "${TARGET_DISK}p2" /mnt
 mkdir -p /mnt/boot/efi
-mount "${TARGET_DISK}1" /mnt/boot/efi
+mount "${TARGET_DISK}p1" /mnt/boot/efi
 check_success "Partition mounting"
 
-# Step 12: Install minimal Ubuntu system
-echo "Installing minimal Ubuntu system..."
-debootstrap --arch=amd64 focal /mnt http://archive.ubuntu.com/ubuntu/
-check_success "Minimal Ubuntu installation"
+# Step 11: Install Ubuntu Server base system
+echo "Installing Ubuntu Server base system..."
+debootstrap --arch=amd64 lunar /mnt http://archive.ubuntu.com/ubuntu/
+check_success "Ubuntu Server base system installation"
 
-# Step 13: Configure system
-echo "Configuring system..."
-echo "root:new@2024" | chroot /mnt chpasswd
-check_success "Root password configuration in installed system"
-chroot /mnt useradd -m adel
-echo "adel:new@2024" | chroot /mnt chpasswd
-check_success "User adel configuration in installed system"
+# Step 12: Configure the base system
+echo "Configuring the base system..."
+echo "nameserver 8.8.8.8" > /mnt/etc/resolv.conf
+mount --bind /dev /mnt/dev
+mount --bind /proc /mnt/proc
+mount --bind /sys /mnt/sys
+chroot /mnt /bin/bash -c "apt-get update && apt-get install -y grub-efi-amd64 openssh-server net-tools"
+check_success "Base system configuration"
 
-# Step 14: Install GRUB Bootloader
+# Step 13: Install and configure GRUB
 echo "Installing GRUB bootloader..."
-chroot /mnt grub-install --target=x86_64-efi --bootloader-id=ubuntu --recheck
-check_success "GRUB installation"
+chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=ubuntu
 chroot /mnt update-grub
-check_success "GRUB configuration"
+check_success "GRUB installation and configuration"
 
-# Step 15: Cleanup
+# Step 14: Set root and user passwords in the new system
+echo "Setting root and user passwords in the new system..."
+chroot /mnt /bin/bash -c "echo 'root:new@2024' | chpasswd"
+chroot /mnt /bin/bash -c "id adel &>/dev/null || adduser --disabled-password --gecos '' adel"
+chroot /mnt /bin/bash -c "echo 'adel:new@2024' | chpasswd"
+check_success "Password setup in the new system"
+
+# Step 15: Clean up
 echo "Cleaning up..."
-umount -lf /mnt/boot/efi
-umount -lf /mnt
+umount -l /mnt/dev || true
+umount -l /mnt/proc || true
+umount -l /mnt/sys || true
+umount -l /mnt/boot/efi || true
+umount -l /mnt || true
 check_success "Cleanup"
 
-# Step 16: Completion message for installed system with Server IP
-SERVER_IP=$(chroot /mnt hostname -I | awk '{print $1}')
+# Step 16: Completion message
+SERVER_IP=$(hostname -I | awk '{print $1}')
 echo "Ubuntu Server setup complete!"
 echo "You can boot into the installed system and SSH using the following credentials:"
 echo "  - Root: new@2024"
 echo "  - User: adel / new@2024"
-echo "  - Installed Server IP Address: $SERVER_IP"
+echo "  - Server IP Address: $SERVER_IP"
