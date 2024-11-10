@@ -3,10 +3,9 @@
 # Disk to partition - replace 'nvme0n1' with your disk name if different
 DISK="/dev/nvme0n1"
 
-# Log start
 echo "Starting automated disk setup for $DISK..."
 
-# Step 1: Install GRUB if not already installed
+# Step 1: Ensure GRUB is installed
 echo "Ensuring GRUB is installed..."
 if ! command -v grub-install &> /dev/null; then
     echo "Installing GRUB..."
@@ -19,17 +18,14 @@ echo "Creating a new GPT partition table on $DISK..."
 parted $DISK --script mklabel gpt
 
 # Step 3: Create partitions
-# Partition 1: Root (20GB)
-echo "Creating root partition..."
+echo "Creating partitions..."
 parted $DISK --script mkpart primary ext4 1MiB 20GiB
-
-# Partition 2: Swap (4GB)
-echo "Creating swap partition..."
 parted $DISK --script mkpart primary linux-swap 20GiB 24GiB
-
-# Partition 3: Home (remaining space)
-echo "Creating home partition..."
 parted $DISK --script mkpart primary ext4 24GiB 100%
+
+# Wait for partitions to be recognized
+echo "Waiting for partitions to be recognized..."
+sleep 5
 
 # Step 4: Format partitions
 echo "Formatting root partition as ext4..."
@@ -45,9 +41,9 @@ swapon "${DISK}p2"
 # Step 5: Install GRUB
 echo "Installing GRUB on $DISK..."
 mount "${DISK}p1" /mnt
-grub-install --root-directory=/mnt $DISK
+grub-install --boot-directory=/mnt/boot $DISK
 
-# Step 6: Clean up and finalize
+# Clean up
 umount /mnt
 
 echo "Partitioning, formatting, and GRUB installation complete."
