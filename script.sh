@@ -3,21 +3,19 @@
 # Ensure the script is executed as root
 if [ "$(id -u)" -ne 0 ]; then
     echo "This script must be run as root."
-    echo "Switching to root user..."
     sudo bash "$0" "$@"
     exit 0
 fi
 
-echo "Starting fully automated minimal Ubuntu Server 24.04 setup..."
+echo "Starting automated Ubuntu Server setup..."
 
 # Configure Google DNS
-echo "Configuring Google DNS on Live USB..."
+echo "Configuring Google DNS..."
 echo "nameserver 8.8.8.8" > /etc/resolv.conf
 echo "nameserver 8.8.4.4" >> /etc/resolv.conf
-echo "DNS configuration set."
 
-# Install dependencies
-echo "Checking and installing missing dependencies..."
+# Install required dependencies
+echo "Installing required dependencies..."
 apt update -y
 apt install -y debootstrap parted grub-efi-amd64 openssh-server || {
     echo "Failed to install dependencies. Exiting."
@@ -25,7 +23,7 @@ apt install -y debootstrap parted grub-efi-amd64 openssh-server || {
 }
 
 # Enable SSH
-echo "Enabling SSH on Live USB..."
+echo "Enabling SSH..."
 systemctl start ssh
 systemctl enable ssh
 sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
@@ -45,9 +43,9 @@ if [ -z "$DISK" ]; then
 fi
 echo "Detected target disk: $DISK"
 
-# Unmount and clean the disk
-echo "Unmounting and cleaning the disk..."
-for partition in $(lsblk -no NAME "${DISK}" | tail -n +2); do
+# Unmount any mounted partitions
+echo "Unmounting any mounted partitions on the target disk..."
+for partition in $(lsblk -no NAME "$DISK" | tail -n +2); do
     umount -f "/dev/${partition}" 2>/dev/null || true
 done
 
@@ -62,21 +60,17 @@ parted -s "$DISK" mkpart primary ext4 512MiB 100%
 BOOT_PART="${DISK}1"
 ROOT_PART="${DISK}2"
 echo "Formatting partitions..."
-umount -f "${BOOT_PART}" 2>/dev/null || true
-mkfs.vfat -F 32 "${BOOT_PART}"
-mkfs.ext4 "${ROOT_PART}"
+mkfs.vfat -F 32 "$BOOT_PART"
+mkfs.ext4 "$ROOT_PART"
 
 # Mount partitions
 echo "Mounting partitions..."
-mount "${ROOT_PART}" /mnt
+mount "$ROOT_PART" /mnt
 mkdir -p /mnt/boot/efi
-mount "${BOOT_PART}" /mnt/boot/efi
-
-# Clean target directory before bootstrapping
-rm -rf /mnt/*
+mount "$BOOT_PART" /mnt/boot/efi
 
 # Bootstrap Ubuntu
-echo "Installing minimal Ubuntu Server system..."
+echo "Installing Ubuntu Server..."
 debootstrap --arch=amd64 lunar /mnt http://archive.ubuntu.com/ubuntu/
 
 # Configure the system
@@ -101,13 +95,19 @@ fi
 
 # Install GRUB
 echo "Installing GRUB bootloader..."
-chroot /mnt grub-install "$DISK"
-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || echo "GRUB configuration failed."
+chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB || {
+    echo "GRUB installation failed. Exiting."
+    exit 1
+}
+chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
 
 # Cleanup
 echo "Cleaning up..."
 umount -f /mnt/boot/efi
 umount -f /mnt/proc /mnt/sys /mnt/dev /mnt
 
-# Display success message
-echo "Minimal Ubuntu Server setup complete!"
+# Completion message
+echo "Ubuntu Server setup complete!"
+echo "You can boot into the installed system and SSH using the following credentials:"
+echo "  - Root: new@2024"
+echo "  - User: adel / new@2024"
