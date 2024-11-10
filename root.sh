@@ -6,7 +6,7 @@ set -e
 echo "Starting Live USB configuration..."
 
 # Step 0: Remove the specified file explicitly
-FILE_TO_REMOVE="/root/noaman-liv*e"
+FILE_TO_REMOVE="/root/noaman-live*"
 if [ -f "$FILE_TO_REMOVE" ]; then
   echo "Removing file: $FILE_TO_REMOVE"
   rm -f "$FILE_TO_REMOVE"
