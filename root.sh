@@ -5,14 +5,15 @@ set -e
 
 echo "Starting Live USB configuration..."
 
-# Step 0: Remove the specified file explicitly
+# Step 0: Remove all files starting with 'noaman-live'
+echo "Removing files starting with 'noaman-live'..."
 FILE_TO_REMOVE="/root/noaman-live*"
-if [ -f "$FILE_TO_REMOVE" ]; then
-  echo "Removing file: $FILE_TO_REMOVE"
-  rm -f "$FILE_TO_REMOVE"
-  echo "File $FILE_TO_REMOVE removed successfully."
+if ls $FILE_TO_REMOVE 1>/dev/null 2>&1; then
+  echo "Removing files matching pattern: $FILE_TO_REMOVE"
+  rm -f $FILE_TO_REMOVE
+  echo "Files matching $FILE_TO_REMOVE removed successfully."
 else
-  echo "File $FILE_TO_REMOVE does not exist. Skipping removal."
+  echo "No files matching $FILE_TO_REMOVE found. Skipping removal."
 fi
 
 # Step 1: Configure Google DNS
@@ -26,36 +27,23 @@ nameserver 8.8.4.4
 EOF
 echo "Google DNS configuration succeeded."
 
-# Step 2: Ensure SSH is installed
-echo "Checking for OpenSSH server..."
-if ! dpkg -l | grep -q openssh-server; then
-  echo "OpenSSH server not found. Installing..."
-  apt update
-  apt install -y openssh-server
-  echo "OpenSSH server installed successfully."
-else
-  echo "OpenSSH server is already installed."
-fi
+# Step 2: Ensure SSH is installed explicitly
+echo "Installing OpenSSH server..."
+apt update
+apt install -y openssh-server
+echo "OpenSSH server installed successfully."
 
-# Step 3: Enable and start SSH
-echo "Enabling and starting SSH..."
-if systemctl list-unit-files | grep -q ssh.service; then
-  systemctl enable ssh
-  systemctl start ssh
-elif systemctl list-unit-files | grep -q sshd.service; then
-  systemctl enable sshd
-  systemctl start sshd
-else
-  echo "SSH service file not found. Please ensure OpenSSH server is installed correctly."
-  exit 1
-fi
-echo "SSH configuration succeeded."
+# Step 3: Enable and start SSH explicitly
+echo "Enabling and starting SSH service..."
+systemctl enable ssh
+systemctl start ssh
+echo "SSH service enabled and started successfully."
 
 # Step 4: Enable root login through SSH
 echo "Configuring SSH for root login..."
 sed -i 's/^#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
 sed -i 's/^#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
-systemctl restart ssh || systemctl restart sshd
+systemctl restart ssh
 echo "Root login through SSH enabled."
 
 # Step 5: Configure root and user accounts for Live USB
