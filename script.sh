@@ -14,13 +14,16 @@ check_grub_installed() {
     fi
 }
 
-# Function to unmount and clean the disk
+# Function to unmount and disable disk usage
 prepare_disk() {
     echo "Unmounting all partitions on $DISK..."
     umount -R "${DISK}"* 2>/dev/null || echo "No partitions to unmount."
 
-    echo "Wiping existing filesystem signatures..."
-    wipefs -a "$DISK"
+    echo "Disabling swap on $DISK..."
+    swapoff -a || echo "No swap to disable."
+
+    echo "Wiping the disk clean..."
+    dd if=/dev/zero of="$DISK" bs=1M count=10 status=progress
 }
 
 # Function to rescan partitions
