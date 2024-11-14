@@ -3,17 +3,9 @@
 # Step 1: Navigate to the home directory
 cd ~ || exit
 
-# Step 2: Check and remove the existing plugin-dongle directory
-if [ -d "plugin-dongle" ]; then
-    echo "Existing plugin-dongle directory found. Removing it..."
-    rm -rf plugin-dongle
-    if [ $? -eq 0 ]; then
-        echo "Existing directory removed successfully."
-    else
-        echo "Failed to remove existing directory."
-        exit 1
-    fi
-fi
+# Step 2: Remove the existing plugin-dongle directory (if any)
+echo "Removing any existing plugin-dongle directory..."
+rm -rf plugin-dongle
 
 # Step 3: Clone the plugin-dongle repository
 echo "Step 1: Cloning plugin-dongle repository..."
